@@ -92,6 +92,71 @@ resolve_passphrase() {
   PASSPHRASE="$pass1"
 }
 
+# ── Backup ──────────────────────────────────────────────────────
+
+BACKUP_COMPLETE=false
+OUTPUT_FILE=""
+
+cleanup() {
+  if [[ "$BACKUP_COMPLETE" != "true" && -n "$OUTPUT_FILE" && -f "$OUTPUT_FILE" ]]; then
+    rm -f "$OUTPUT_FILE"
+    warn "Backup failed. Partial file removed: $OUTPUT_FILE"
+  fi
+}
+
+trap cleanup EXIT
+
+run_backup() {
+  local timestamp
+  timestamp=$(date +"%Y-%m-%d-%H%M%S")
+  local filename="vault-backup-${timestamp}.tar.gz.enc"
+  OUTPUT_FILE="$OUTPUT_DIR/$filename"
+
+  # Build exclude args
+  local exclude_args=()
+  for pattern in "${EXCLUDE_PATTERNS[@]+"${EXCLUDE_PATTERNS[@]}"}"; do
+    [[ -n "$pattern" ]] && exclude_args+=(--exclude="$pattern")
+  done
+
+  # Compress and encrypt in a single pipeline
+  tar cz ${exclude_args[@]+"${exclude_args[@]}"} -C "$SOURCE_DIR" . \
+    | openssl enc -aes-256-cbc -salt -pbkdf2 -iter 600000 \
+        -pass fd:3 3<<<"$PASSPHRASE" \
+        -out "$OUTPUT_FILE"
+
+  BACKUP_COMPLETE=true
+
+  # File size (portable)
+  local size
+  if [[ "$(uname)" == "Darwin" ]]; then
+    size=$(stat -f "%z" "$OUTPUT_FILE")
+  else
+    size=$(stat -c "%s" "$OUTPUT_FILE")
+  fi
+
+  # Human-readable size
+  local human_size
+  if (( size >= 1073741824 )); then
+    human_size=$(awk "BEGIN {printf \"%.1f GB\", $size/1073741824}")
+  elif (( size >= 1048576 )); then
+    human_size=$(awk "BEGIN {printf \"%.1f MB\", $size/1048576}")
+  elif (( size >= 1024 )); then
+    human_size=$(awk "BEGIN {printf \"%.1f KB\", $size/1024}")
+  else
+    human_size="${size} B"
+  fi
+
+  echo ""
+  echo "Done! $filename ($human_size)"
+  echo "Saved to: $OUTPUT_FILE"
+  echo ""
+  echo "To decrypt:"
+  echo "  openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 600000 \\"
+  echo "    -in $filename \\"
+  echo "    -out ${filename%.enc}"
+  echo "  tar xzf ${filename%.enc}"
+}
+
 # ── Resolve config path ────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -105,3 +170,4 @@ fi
 load_config "$CONFIG_PATH"
 validate
 resolve_passphrase
+run_backup

@@ -151,6 +151,97 @@ test_passphrase_from_config() {
   fi
 }
 
+test_round_trip() {
+  echo "TEST: full round-trip encrypt and decrypt"
+  # Create test files
+  echo "hello world" > "$TEST_TMP/source/file1.txt"
+  mkdir -p "$TEST_TMP/source/subdir"
+  echo "nested content" > "$TEST_TMP/source/subdir/file2.txt"
+
+  write_config "roundtrippassword"
+
+  # Run backup
+  local output
+  output=$("$VAULT_BACKUP" "$TEST_TMP/vault-backup.conf" 2>&1) || {
+    fail "backup failed" "$output"
+    return
+  }
+
+  # Find the .enc file
+  local enc_file
+  enc_file=$(ls "$TEST_TMP/output/"*.enc 2>/dev/null | head -1) || true
+  if [[ -z "$enc_file" ]]; then
+    fail "no .enc file created"
+    return
+  fi
+
+  # Decrypt
+  local tar_file="$TEST_TMP/restore/backup.tar.gz"
+  openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 600000 \
+    -pass pass:roundtrippassword \
+    -in "$enc_file" \
+    -out "$tar_file" 2>/dev/null || {
+    fail "decryption failed"
+    return
+  }
+
+  # Extract
+  tar xzf "$tar_file" -C "$TEST_TMP/restore" || {
+    fail "tar extraction failed"
+    return
+  }
+
+  # Verify contents
+  if [[ "$(cat "$TEST_TMP/restore/file1.txt")" == "hello world" ]] &&
+     [[ "$(cat "$TEST_TMP/restore/subdir/file2.txt")" == "nested content" ]]; then
+    pass "round-trip: files match after decrypt"
+  else
+    fail "round-trip: file contents do not match"
+  fi
+}
+
+test_excludes_work() {
+  echo "TEST: exclude patterns are respected"
+  echo "keep me" > "$TEST_TMP/source/keep.txt"
+  echo "skip me" > "$TEST_TMP/source/skip.log"
+  touch "$TEST_TMP/source/.DS_Store"
+
+  cat > "$TEST_TMP/vault-backup.conf" <<CONF
+SOURCE_DIR="$TEST_TMP/source"
+OUTPUT_DIR="$TEST_TMP/output"
+EXCLUDE_PATTERNS=(
+    "*.log"
+    ".DS_Store"
+)
+PASSPHRASE="excludetest"
+CONF
+  chmod 600 "$TEST_TMP/vault-backup.conf"
+
+  "$VAULT_BACKUP" "$TEST_TMP/vault-backup.conf" >/dev/null 2>&1 || {
+    fail "backup with excludes failed"
+    return
+  }
+
+  local enc_file
+  enc_file=$(ls "$TEST_TMP/output/"*.enc 2>/dev/null | head -1)
+
+  openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 600000 \
+    -pass pass:excludetest \
+    -in "$enc_file" \
+    -out "$TEST_TMP/restore/backup.tar.gz" 2>/dev/null
+
+  tar xzf "$TEST_TMP/restore/backup.tar.gz" -C "$TEST_TMP/restore"
+
+  local ok=true
+  [[ -f "$TEST_TMP/restore/keep.txt" ]] || { fail "keep.txt missing"; ok=false; }
+  [[ ! -f "$TEST_TMP/restore/skip.log" ]] || { fail "skip.log should be excluded"; ok=false; }
+  [[ ! -f "$TEST_TMP/restore/.DS_Store" ]] || { fail ".DS_Store should be excluded"; ok=false; }
+
+  if $ok; then
+    pass "excludes: correct files included/excluded"
+  fi
+}
+
 # ── Run ─────────────────────────────────────────────────────────
 echo "vault-backup integration tests"
 echo "══════════════════════════════"
@@ -160,7 +251,9 @@ test_missing_config
 test_missing_source_dir
 test_missing_output_dir
 test_empty_passphrase_non_interactive
-setup  # reset for next test
-test_passphrase_from_config
+setup
+test_round_trip
+setup
+test_excludes_work
 teardown
 summary
