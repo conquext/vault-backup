@@ -171,5 +171,19 @@ fi
 
 load_config "$CONFIG_PATH"
 validate
+
+# ── Banner ──────────────────────────────────────────────────────
+echo "vault-backup v${VERSION}"
+echo "─────────────────────────"
+echo "Source:    $SOURCE_DIR"
+echo "Output:    $OUTPUT_DIR"
+if [[ ${#EXCLUDE_PATTERNS[@]} -gt 0 && -n "${EXCLUDE_PATTERNS[0]}" ]]; then
+  echo "Excludes:  $(IFS=,; echo "${EXCLUDE_PATTERNS[*]}" | sed 's/,/, /g')"
+fi
+echo ""
+
 resolve_passphrase
+
+echo "Backing up..."
+
 run_backup
