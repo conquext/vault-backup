@@ -165,7 +165,7 @@ test_round_trip() {
 
   # Decrypt
   local tar_file="$TEST_TMP/restore/backup.tar.gz"
-  openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 600000 \
+  openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 600000 -md sha256 \
     -pass pass:roundtrippassword \
     -in "$enc_file" \
     -out "$tar_file" 2>/dev/null || {
@@ -213,7 +213,7 @@ CONF
   local enc_file
   enc_file=$(ls "$TEST_TMP/output/"*.enc 2>/dev/null | head -1)
 
-  openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 600000 \
+  openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 600000 -md sha256 \
     -pass pass:excludetest \
     -in "$enc_file" \
     -out "$TEST_TMP/restore/backup.tar.gz" 2>/dev/null

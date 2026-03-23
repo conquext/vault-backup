@@ -40,6 +40,9 @@ load_config() {
   # shellcheck source=/dev/null
   source "$config_path"
 
+  # Required
+  [[ -n "${SOURCE_DIR:-}" ]] || die "SOURCE_DIR is not set in config file: $config_path"
+
   # Defaults
   OUTPUT_DIR="${OUTPUT_DIR:-$HOME/Downloads}"
   if [[ -z "${EXCLUDE_PATTERNS+x}" ]]; then
@@ -120,7 +123,7 @@ run_backup() {
 
   # Compress and encrypt in a single pipeline
   tar cz ${exclude_args[@]+"${exclude_args[@]}"} -C "$SOURCE_DIR" . \
-    | openssl enc -aes-256-cbc -salt -pbkdf2 -iter 600000 \
+    | openssl enc -aes-256-cbc -salt -pbkdf2 -iter 600000 -md sha256 \
         -pass fd:3 3<<<"$PASSPHRASE" \
         -out "$OUTPUT_FILE"
 
@@ -153,7 +156,7 @@ run_backup() {
   echo "Saved to: $OUTPUT_FILE"
   echo ""
   echo "To decrypt:"
-  echo "  openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 600000 \\"
+  echo "  openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 600000 -md sha256 \\"
   echo "    -in $filename \\"
   echo "    -out ${filename%.enc}"
   echo "  tar xzf ${filename%.enc}"

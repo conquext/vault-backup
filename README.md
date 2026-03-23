@@ -46,7 +46,7 @@ You need: `openssl` (1.1.1+) and `tar` — both pre-installed on macOS and Linux
 
 ```bash
 # Decrypt
-openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 600000 \
+openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 600000 -md sha256 \
   -in vault-backup-2026-03-23-143022.tar.gz.enc \
   -out vault-backup-2026-03-23-143022.tar.gz
 
