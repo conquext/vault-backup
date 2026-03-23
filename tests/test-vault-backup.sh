@@ -61,10 +61,69 @@ test_script_exists() {
   fi
 }
 
+test_missing_config() {
+  echo "TEST: exits with error on missing config"
+  local output
+  if output=$("$VAULT_BACKUP" /nonexistent/path 2>&1); then
+    fail "should have exited non-zero"
+  else
+    if echo "$output" | grep -q "Config file not found"; then
+      pass "exits with config not found error"
+    else
+      fail "wrong error message" "$output"
+    fi
+  fi
+}
+
+test_missing_source_dir() {
+  echo "TEST: exits with error on missing source directory"
+  cat > "$TEST_TMP/vault-backup.conf" <<CONF
+SOURCE_DIR="/nonexistent/dir"
+OUTPUT_DIR="$TEST_TMP/output"
+EXCLUDE_PATTERNS=()
+PASSPHRASE="test"
+CONF
+  chmod 600 "$TEST_TMP/vault-backup.conf"
+  local output
+  if output=$("$VAULT_BACKUP" "$TEST_TMP/vault-backup.conf" 2>&1); then
+    fail "should have exited non-zero"
+  else
+    if echo "$output" | grep -q "Source directory"; then
+      pass "exits with source directory error"
+    else
+      fail "wrong error message" "$output"
+    fi
+  fi
+}
+
+test_missing_output_dir() {
+  echo "TEST: exits with error on missing output directory"
+  cat > "$TEST_TMP/vault-backup.conf" <<CONF
+SOURCE_DIR="$TEST_TMP/source"
+OUTPUT_DIR="/nonexistent/output"
+EXCLUDE_PATTERNS=()
+PASSPHRASE="test"
+CONF
+  chmod 600 "$TEST_TMP/vault-backup.conf"
+  local output
+  if output=$("$VAULT_BACKUP" "$TEST_TMP/vault-backup.conf" 2>&1); then
+    fail "should have exited non-zero"
+  else
+    if echo "$output" | grep -q "Output directory"; then
+      pass "exits with output directory error"
+    else
+      fail "wrong error message" "$output"
+    fi
+  fi
+}
+
 # ── Run ─────────────────────────────────────────────────────────
 echo "vault-backup integration tests"
 echo "══════════════════════════════"
 setup
 test_script_exists
+test_missing_config
+test_missing_source_dir
+test_missing_output_dir
 teardown
 summary

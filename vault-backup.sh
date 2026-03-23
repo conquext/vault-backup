@@ -48,6 +48,21 @@ load_config() {
   PASSPHRASE="${PASSPHRASE:-}"
 }
 
+# ── Validation ──────────────────────────────────────────────────
+
+validate() {
+  [[ -d "$SOURCE_DIR" ]] || die "Source directory does not exist: $SOURCE_DIR"
+  [[ -d "$OUTPUT_DIR" ]] || die "Output directory does not exist: $OUTPUT_DIR"
+
+  command -v openssl >/dev/null 2>&1 || die "openssl is not installed"
+  command -v tar >/dev/null 2>&1 || die "tar is not installed"
+
+  # Check openssl supports -pbkdf2
+  if ! openssl enc -aes-256-cbc -pbkdf2 -iter 1 -pass pass:test -e -in /dev/null -out /dev/null 2>/dev/null; then
+    die "openssl does not support -pbkdf2. Requires OpenSSL 1.1.1+ or LibreSSL 3.1.0+"
+  fi
+}
+
 # ── Resolve config path ────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -59,3 +74,4 @@ else
 fi
 
 load_config "$CONFIG_PATH"
+validate
