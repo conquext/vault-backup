@@ -124,6 +124,8 @@ run_backup() {
         -pass fd:3 3<<<"$PASSPHRASE" \
         -out "$OUTPUT_FILE"
 
+  [[ -s "$OUTPUT_FILE" ]] || die "Backup produced an empty file"
+
   BACKUP_COMPLETE=true
 
   # File size (portable)

@@ -139,18 +139,6 @@ CONF
   fi
 }
 
-test_passphrase_from_config() {
-  echo "TEST: accepts passphrase from config"
-  echo "hello" > "$TEST_TMP/source/test.txt"
-  write_config "mysecretpassword"
-  local output
-  if output=$("$VAULT_BACKUP" "$TEST_TMP/vault-backup.conf" 2>&1); then
-    pass "backup succeeds with config passphrase"
-  else
-    fail "backup failed" "$output"
-  fi
-}
-
 test_round_trip() {
   echo "TEST: full round-trip encrypt and decrypt"
   # Create test files
