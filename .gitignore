@@ -1,0 +1,8 @@
+# User config (may contain passphrase)
+vault-backup.conf
+
+# Encrypted backup files
+*.enc
+
+# Test artifacts
+tests/tmp/

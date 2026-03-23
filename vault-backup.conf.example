@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# vault-backup configuration
+# Copy this file to vault-backup.conf and customize.
+# IMPORTANT: vault-backup.conf is gitignored — do not commit it.
+
+# Directory to back up (required, absolute path)
+SOURCE_DIR="$HOME/.backup_directory"
+
+# Output directory for encrypted backups (default: ~/Downloads)
+OUTPUT_DIR="$HOME/Downloads"
+
+# Exclude patterns (tar --exclude format)
+# Add one pattern per line. Common examples:
+#   ".DS_Store"    — macOS metadata files
+#   "*.log"        — log files
+#   ".git"         — git repositories
+#   "node_modules" — npm dependencies
+#   "__pycache__"  — Python cache
+EXCLUDE_PATTERNS=(
+    ".DS_Store"
+)
+
+# Passphrase for encryption.
+# Leave empty to be prompted interactively (recommended).
+# Set a value here only for automated/cron usage.
+PASSPHRASE=""
