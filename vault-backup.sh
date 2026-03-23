@@ -63,6 +63,35 @@ validate() {
   fi
 }
 
+# ── Passphrase ──────────────────────────────────────────────────
+
+resolve_passphrase() {
+  if [[ -n "$PASSPHRASE" ]]; then
+    return
+  fi
+
+  # Non-interactive — no passphrase available
+  if [[ ! -t 0 ]]; then
+    die "No passphrase set in config and stdin is not a terminal. Set PASSPHRASE in your config file for non-interactive use."
+  fi
+
+  # Interactive prompt
+  local pass1 pass2
+  printf "Enter passphrase: " >&2
+  read -rs pass1
+  printf "\n" >&2
+
+  [[ -n "$pass1" ]] || die "Passphrase cannot be empty."
+
+  printf "Confirm passphrase: " >&2
+  read -rs pass2
+  printf "\n" >&2
+
+  [[ "$pass1" == "$pass2" ]] || die "Passphrases do not match."
+
+  PASSPHRASE="$pass1"
+}
+
 # ── Resolve config path ────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -75,3 +104,4 @@ fi
 
 load_config "$CONFIG_PATH"
 validate
+resolve_passphrase

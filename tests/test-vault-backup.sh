@@ -117,6 +117,40 @@ CONF
   fi
 }
 
+test_empty_passphrase_non_interactive() {
+  echo "TEST: exits with error on empty passphrase in non-interactive mode"
+  cat > "$TEST_TMP/vault-backup.conf" <<CONF
+SOURCE_DIR="$TEST_TMP/source"
+OUTPUT_DIR="$TEST_TMP/output"
+EXCLUDE_PATTERNS=()
+PASSPHRASE=""
+CONF
+  chmod 600 "$TEST_TMP/vault-backup.conf"
+  local output
+  # Pipe from /dev/null to simulate non-interactive
+  if output=$("$VAULT_BACKUP" "$TEST_TMP/vault-backup.conf" < /dev/null 2>&1); then
+    fail "should have exited non-zero"
+  else
+    if echo "$output" | grep -qi "passphrase"; then
+      pass "exits with passphrase error in non-interactive mode"
+    else
+      fail "wrong error message" "$output"
+    fi
+  fi
+}
+
+test_passphrase_from_config() {
+  echo "TEST: accepts passphrase from config"
+  echo "hello" > "$TEST_TMP/source/test.txt"
+  write_config "mysecretpassword"
+  local output
+  if output=$("$VAULT_BACKUP" "$TEST_TMP/vault-backup.conf" 2>&1); then
+    pass "backup succeeds with config passphrase"
+  else
+    fail "backup failed" "$output"
+  fi
+}
+
 # ── Run ─────────────────────────────────────────────────────────
 echo "vault-backup integration tests"
 echo "══════════════════════════════"
@@ -125,5 +159,8 @@ test_script_exists
 test_missing_config
 test_missing_source_dir
 test_missing_output_dir
+test_empty_passphrase_non_interactive
+setup  # reset for next test
+test_passphrase_from_config
 teardown
 summary
