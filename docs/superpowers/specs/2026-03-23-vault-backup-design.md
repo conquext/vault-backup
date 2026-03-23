@@ -51,10 +51,26 @@ An example file `vault-backup.conf.example` is committed to the repo with sensib
 ## Core Flow
 
 1. **Load config** — source `vault-backup.conf` from the script's directory, or from a path passed as the first argument.
-2. **Validate** — check that `SOURCE_DIR` exists, `OUTPUT_DIR` exists, `openssl` is available, and `tar` is available.
-3. **Passphrase** — if `PASSPHRASE` is empty in config, prompt with `read -s` twice (entry + confirmation). Reject if they don't match. The passphrase never appears in terminal history or process listings.
-4. **Compress + Encrypt** — pipe `tar cz` (with excludes) directly into `openssl enc`, writing to the output file. No unencrypted intermediate files touch disk.
-5. **Summary** — print file path, size, and the exact decrypt command.
+2. **Validate** — check that `SOURCE_DIR` exists, `OUTPUT_DIR` exists, `openssl` is available (must support `-pbkdf2`, i.e., OpenSSL 1.1.1+ or LibreSSL 3.1.0+), and `tar` is available. Also check config file permissions — warn to stderr if `vault-backup.conf` is group/world-readable.
+3. **Passphrase** — if `PASSPHRASE` is empty in config:
+   - Check that stdin is a terminal (`[[ -t 0 ]]`); if not, exit with an error explaining that a passphrase must be provided in config for non-interactive use.
+   - Prompt with `read -s` twice (entry + confirmation). Reject if they don't match. Reject if empty.
+   - The passphrase never appears in terminal history or process listings.
+4. **Build exclude args** — map `EXCLUDE_PATTERNS` array to tar flags:
+   ```bash
+   EXCLUDE_ARGS=()
+   for pattern in "${EXCLUDE_PATTERNS[@]}"; do
+     EXCLUDE_ARGS+=(--exclude="$pattern")
+   done
+   ```
+5. **Compress + Encrypt** — pipe `tar cz` (with excludes) directly into `openssl enc`, writing to the output file. No unencrypted intermediate files touch disk. The passphrase is passed via file descriptor 3 (`-pass fd:3 3<<<"$PASSPHRASE"`), keeping stdin free for the tar pipe and the passphrase invisible in `ps` output. Archive contains directory contents only (`tar cz -C "$SOURCE_DIR" .`), not the full path.
+   ```bash
+   tar cz "${EXCLUDE_ARGS[@]}" -C "$SOURCE_DIR" . \
+     | openssl enc -aes-256-cbc -salt -pbkdf2 -iter 600000 \
+         -pass fd:3 3<<<"$PASSPHRASE" \
+         -out "$OUTPUT_FILE"
+   ```
+6. **Summary** — print file path, size, and the exact decrypt command.
 
 ## Encryption
 
@@ -65,10 +81,10 @@ An example file `vault-backup.conf.example` is committed to the repo with sensib
 
 ### Recovery
 
-Decryption requires only `openssl` (pre-installed on macOS, available on every Linux distro, available on Windows via Git Bash or WSL):
+Decryption requires only `openssl` 1.1.1+ (pre-installed on macOS, available on every Linux distro, available on Windows via Git Bash or WSL):
 
 ```bash
-openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 \
+openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 600000 \
   -in vault-backup-2026-03-23-143022.tar.gz.enc \
   -out vault-backup-2026-03-23-143022.tar.gz
 tar xzf vault-backup-2026-03-23-143022.tar.gz
@@ -110,7 +126,7 @@ Done! vault-backup-2026-03-23-143022.tar.gz.enc (12.4 MB)
 Saved to: /Users/apple/Downloads/vault-backup-2026-03-23-143022.tar.gz.enc
 
 To decrypt:
-  openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 \
+  openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 600000 \
     -in vault-backup-2026-03-23-143022.tar.gz.enc \
     -out vault-backup-2026-03-23-143022.tar.gz
   tar xzf vault-backup-2026-03-23-143022.tar.gz
@@ -120,16 +136,18 @@ To decrypt:
 
 - `set -euo pipefail` at the top of the script
 - Validate all prerequisites before starting the backup
-- If encryption fails (broken pipe, disk full, etc.), delete the partial output file via a trap
+- `trap cleanup EXIT` to handle all exit paths; the cleanup function checks whether the backup completed successfully and deletes the partial output file if not
 - Non-zero exit codes with descriptive error messages to stderr
 
 ## Security Considerations
 
 - Passphrase never in terminal history (not a CLI argument)
-- Passphrase passed to openssl via `-pass stdin` (piped, not visible in `ps`)
+- Passphrase passed to openssl via `-pass fd:3` using a here-string on file descriptor 3 — keeps stdin free for the tar pipe and is not visible in `ps` output
 - No unencrypted temp files — tar pipes directly to openssl
-- Config file with passphrase should be chmod 600
+- Script warns at startup if config file permissions are too open (group/world-readable)
+- Empty passphrases are rejected
 - `.gitignore` excludes `vault-backup.conf` and `*.enc` files
+- **Minimum openssl version:** 1.1.1 (for `-pbkdf2` support); the validation step checks this
 
 ## Future Extensions (Not In Scope)
 
