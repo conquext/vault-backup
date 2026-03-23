@@ -230,6 +230,77 @@ CONF
   fi
 }
 
+test_empty_exclude_patterns() {
+  echo "TEST: works with empty exclude patterns"
+  echo "content" > "$TEST_TMP/source/file.txt"
+  cat > "$TEST_TMP/vault-backup.conf" <<CONF
+SOURCE_DIR="$TEST_TMP/source"
+OUTPUT_DIR="$TEST_TMP/output"
+EXCLUDE_PATTERNS=()
+PASSPHRASE="emptyexclude"
+CONF
+  chmod 600 "$TEST_TMP/vault-backup.conf"
+
+  if "$VAULT_BACKUP" "$TEST_TMP/vault-backup.conf" >/dev/null 2>&1; then
+    pass "empty exclude patterns work"
+  else
+    fail "backup failed with empty exclude patterns"
+  fi
+}
+
+test_wrong_passphrase_fails() {
+  echo "TEST: decryption with wrong passphrase fails"
+  echo "secret data" > "$TEST_TMP/source/secret.txt"
+  write_config "correctpassword"
+
+  "$VAULT_BACKUP" "$TEST_TMP/vault-backup.conf" >/dev/null 2>&1
+
+  local enc_file
+  enc_file=$(ls "$TEST_TMP/output/"*.enc 2>/dev/null | head -1)
+
+  if openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 600000 \
+    -pass pass:wrongpassword \
+    -in "$enc_file" \
+    -out "$TEST_TMP/restore/backup.tar.gz" 2>/dev/null; then
+    fail "decryption should fail with wrong passphrase"
+  else
+    pass "wrong passphrase correctly rejected"
+  fi
+}
+
+test_config_permission_warning() {
+  echo "TEST: warns on world-readable config"
+  echo "data" > "$TEST_TMP/source/file.txt"
+  write_config "permtest"
+  chmod 644 "$TEST_TMP/vault-backup.conf"
+  local output
+  output=$("$VAULT_BACKUP" "$TEST_TMP/vault-backup.conf" 2>&1) || true
+  if echo "$output" | grep -q "readable by others"; then
+    pass "warns on insecure config permissions"
+  else
+    fail "missing permission warning" "$output"
+  fi
+}
+
+test_output_file_naming() {
+  echo "TEST: output file follows naming convention"
+  echo "data" > "$TEST_TMP/source/file.txt"
+  write_config "nametest"
+
+  "$VAULT_BACKUP" "$TEST_TMP/vault-backup.conf" >/dev/null 2>&1
+
+  local enc_file
+  enc_file=$(ls "$TEST_TMP/output/"*.enc 2>/dev/null | head -1)
+  local basename
+  basename=$(basename "$enc_file")
+
+  if [[ "$basename" =~ ^vault-backup-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}\.tar\.gz\.enc$ ]]; then
+    pass "filename matches naming convention"
+  else
+    fail "filename does not match convention: $basename"
+  fi
+}
+
 # ── Run ─────────────────────────────────────────────────────────
 echo "vault-backup integration tests"
 echo "══════════════════════════════"
@@ -243,5 +314,13 @@ setup
 test_round_trip
 setup
 test_excludes_work
+setup
+test_empty_exclude_patterns
+setup
+test_wrong_passphrase_fails
+setup
+test_config_permission_warning
+setup
+test_output_file_naming
 teardown
 summary
