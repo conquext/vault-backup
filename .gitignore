@@ -6,3 +6,6 @@ vault-backup.conf
 
 # Test artifacts
 tests/tmp/
+
+# Internal docs
+docs/

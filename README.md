@@ -6,7 +6,7 @@ A simple, portable tool for creating encrypted backups. Compresses a directory a
 
 ```bash
 # 1. Clone the repo
-git clone <url> && cd vault-backup
+git clone git@github.com:conquext/vault-backup.git && cd vault-backup
 
 # 2. Copy and edit the config
 cp vault-backup.conf.example vault-backup.conf
