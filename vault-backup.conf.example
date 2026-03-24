@@ -24,3 +24,31 @@ EXCLUDE_PATTERNS=(
 # Leave empty to be prompted interactively (recommended).
 # Set a value here only for automated/cron usage.
 PASSPHRASE=""
+
+# ── Upload (v2.0) ──────────────────────────────────────────────
+# rclone remote + path for uploading backups after creation.
+# Requires rclone to be installed and configured.
+# Examples: "s3:my-bucket/backups", "gdrive:backups", "b2:bucket/path"
+# Leave empty to skip upload.
+UPLOAD_REMOTE=""
+
+# ── Rotation (v2.0) ────────────────────────────────────────────
+# Number of local backups to keep. Oldest files are deleted first.
+# Set to 0 to keep all backups (no rotation).
+RETENTION_COUNT=0
+
+# ── Notifications (v2.0) ───────────────────────────────────────
+# Webhook URL for POST notifications after backup.
+# Receives JSON: {"status","filename","size","timestamp","details"}
+# Works with Slack, Discord, ntfy.sh, or any webhook endpoint.
+# Leave empty to skip notifications.
+NOTIFY_URL=""
+
+# When to send notifications: "always", "success", or "failure"
+NOTIFY_ON="always"
+
+# ── Profiles (v2.0) ────────────────────────────────────────────
+# Directory containing .conf files for --all mode.
+# Each .conf file is a separate backup profile with its own settings.
+# Leave empty to disable --all mode.
+PROFILES_DIR=""

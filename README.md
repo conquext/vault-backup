@@ -17,16 +17,54 @@ chmod 600 vault-backup.conf
 ./vault-backup.sh
 ```
 
+## Usage
+
+```
+vault-backup.sh [options] [config-file]
+vault-backup.sh restore <file.enc> [--to <dir>]
+vault-backup.sh verify <file.enc>
+vault-backup.sh install-cron [schedule]
+```
+
+### Options
+
+| Flag | Description |
+|---|---|
+| `--config <file>` | Path to config file |
+| `--dry-run` | Show what would be backed up without creating a backup |
+| `--all` | Run all profiles in PROFILES_DIR |
+| `--help`, `-h` | Show help message |
+| `--version`, `-v` | Show version |
+
+### Examples
+
+```bash
+./vault-backup.sh                              # Use default config
+./vault-backup.sh vault-backup.conf            # Specify config file
+./vault-backup.sh --dry-run                    # Preview backup
+./vault-backup.sh --all                        # Run all profiles
+./vault-backup.sh restore backup.enc           # Restore to current dir
+./vault-backup.sh restore backup.enc --to ~/restored
+./vault-backup.sh verify backup.enc            # Verify checksum
+./vault-backup.sh install-cron                 # Default: 0 2 * * *
+./vault-backup.sh install-cron "0 3 * * 0"    # Custom schedule
+```
+
 ## Configuration
 
 Edit `vault-backup.conf`:
 
-| Variable | Required | Description |
-|---|---|---|
-| `SOURCE_DIR` | Yes | Absolute path to the directory to back up |
-| `OUTPUT_DIR` | No | Where to save the encrypted file (default: `~/Downloads`) |
-| `EXCLUDE_PATTERNS` | No | Array of tar `--exclude` patterns |
-| `PASSPHRASE` | No | Leave empty to be prompted interactively |
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `SOURCE_DIR` | Yes | — | Absolute path to the directory to back up |
+| `OUTPUT_DIR` | No | `~/Downloads` | Where to save the encrypted file |
+| `EXCLUDE_PATTERNS` | No | `()` | Array of tar `--exclude` patterns |
+| `PASSPHRASE` | No | — | Leave empty to be prompted interactively |
+| `UPLOAD_REMOTE` | No | `""` | rclone remote + path (e.g., `s3:bucket/backups`) |
+| `RETENTION_COUNT` | No | `0` | Local backups to keep. 0 = keep all |
+| `NOTIFY_URL` | No | `""` | Webhook URL for POST notifications |
+| `NOTIFY_ON` | No | `"always"` | When to notify: `always`, `success`, `failure` |
+| `PROFILES_DIR` | No | `""` | Directory of `.conf` files for `--all` |
 
 ### Exclude Patterns
 
@@ -40,21 +78,129 @@ EXCLUDE_PATTERNS=(
 )
 ```
 
-## Recovering Your Files
+## Restore
 
-You need: `openssl` (1.1.1+) and `tar` — both pre-installed on macOS and Linux.
+Restore an encrypted backup to a directory:
 
 ```bash
-# Decrypt
+# Restore to current directory
+./vault-backup.sh restore vault-backup-2026-03-23-143022.tar.gz.enc
+
+# Restore to a specific directory
+./vault-backup.sh restore vault-backup-2026-03-23-143022.tar.gz.enc --to ~/restored
+
+# Scripted (pipe passphrase)
+echo "mypassphrase" | ./vault-backup.sh restore backup.enc --to ~/restored
+```
+
+You can also decrypt manually without the tool:
+
+```bash
 openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 600000 -md sha256 \
   -in vault-backup-2026-03-23-143022.tar.gz.enc \
   -out vault-backup-2026-03-23-143022.tar.gz
-
-# Extract
 tar xzf vault-backup-2026-03-23-143022.tar.gz
 ```
 
 On Windows, use Git Bash or WSL.
+
+## Verify
+
+Each backup creates a `.sha256` checksum file. Verify integrity at any time:
+
+```bash
+./vault-backup.sh verify vault-backup-2026-03-23-143022.tar.gz.enc
+```
+
+This compares the stored hash against the file's current hash and reports any tampering or corruption.
+
+## Upload
+
+Upload backups to a remote destination using [rclone](https://rclone.org/):
+
+```bash
+# In vault-backup.conf
+UPLOAD_REMOTE="s3:my-bucket/backups"
+```
+
+Both the `.enc` file and its `.sha256` checksum are uploaded. Requires rclone to be installed and configured. If rclone is not available, the backup still succeeds locally with a warning.
+
+## Rotation
+
+Automatically delete old local backups, keeping only the most recent N:
+
+```bash
+# In vault-backup.conf
+RETENTION_COUNT=7    # Keep last 7 backups
+```
+
+Rotation runs after each backup. Companion `.sha256` files are also removed. Set to `0` to keep all backups (default).
+
+## Notifications
+
+Send a webhook notification after each backup:
+
+```bash
+# In vault-backup.conf
+NOTIFY_URL="https://hooks.slack.com/services/T.../B.../xxx"
+NOTIFY_ON="always"    # or "success" or "failure"
+```
+
+Sends a POST request with JSON:
+
+```json
+{
+  "status": "success",
+  "filename": "vault-backup-2026-03-23-143022.tar.gz.enc",
+  "size": "1234567",
+  "timestamp": "2026-03-23T14:30:22Z",
+  "details": ""
+}
+```
+
+Works with Slack, Discord, ntfy.sh, or any webhook endpoint.
+
+## Profiles
+
+Run multiple backup configurations with a single command:
+
+```bash
+# In vault-backup.conf
+PROFILES_DIR="$HOME/.config/vault-backup/profiles"
+```
+
+Create one `.conf` file per backup target in the profiles directory. Each profile has its own `SOURCE_DIR`, `OUTPUT_DIR`, passphrase, upload, rotation, and notification settings.
+
+```bash
+# Run all profiles
+./vault-backup.sh --all
+
+# Each profile runs in isolation — failures in one don't stop others
+```
+
+## Cron
+
+Schedule automated backups:
+
+```bash
+# Install with default schedule (daily at 2 AM)
+./vault-backup.sh install-cron
+
+# Custom schedule
+./vault-backup.sh install-cron "0 3 * * 0"    # Weekly on Sunday at 3 AM
+```
+
+Requires `PASSPHRASE` to be set in the config file (no interactive prompt in cron). The tool checks for existing vault-backup cron entries to prevent duplicates.
+
+## Dry Run
+
+Preview what would be backed up without creating any files:
+
+```bash
+./vault-backup.sh --dry-run
+```
+
+Shows source directory, file count, estimated size, output filename, and configured upload destination. No passphrase is required.
 
 ## Encryption Details
 
@@ -70,6 +216,8 @@ No special software, keys, or certificates needed for recovery — just OpenSSL 
 - Bash 4+
 - OpenSSL 1.1.1+ or LibreSSL 3.1.0+
 - tar
+- rclone (optional, for uploads)
+- curl (optional, for notifications)
 
 ## Running Tests
 
