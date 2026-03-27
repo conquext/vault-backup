@@ -20,6 +20,15 @@ EXCLUDE_PATTERNS=(
     ".DS_Store"
 )
 
+# Include patterns (find -name format)
+# When non-empty, only files matching these patterns are backed up.
+# Paths are relative to SOURCE_DIR. Leave empty to back up everything.
+# Examples:
+#   "*.env"       — all .env files
+#   ".env.local"  — specific file name
+#   "*.pem"       — certificate/key files
+INCLUDE_PATTERNS=()
+
 # Passphrase for encryption.
 # Leave empty to be prompted interactively (recommended).
 # Set a value here only for automated/cron usage.

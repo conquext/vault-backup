@@ -22,6 +22,7 @@ chmod 600 vault-backup.conf
 ```
 vault-backup.sh [options] [config-file]
 vault-backup.sh restore <file.enc> [--to <dir>]
+vault-backup.sh collect <pattern> --from <dir> [--to <dir>]
 vault-backup.sh verify <file.enc>
 vault-backup.sh install-cron [schedule]
 ```
@@ -45,6 +46,8 @@ vault-backup.sh install-cron [schedule]
 ./vault-backup.sh --all                        # Run all profiles
 ./vault-backup.sh restore backup.enc           # Restore to current dir
 ./vault-backup.sh restore backup.enc --to ~/restored
+./vault-backup.sh collect '*.env' --from ~/projects
+./vault-backup.sh collect '*.env' --from ~/projects --to ~/backups
 ./vault-backup.sh verify backup.enc            # Verify checksum
 ./vault-backup.sh install-cron                 # Default: 0 2 * * *
 ./vault-backup.sh install-cron "0 3 * * 0"    # Custom schedule
@@ -58,6 +61,7 @@ Edit `vault-backup.conf`:
 |---|---|---|---|
 | `SOURCE_DIR` | Yes | — | Absolute path to the directory to back up |
 | `OUTPUT_DIR` | No | `~/Downloads` | Where to save the encrypted file |
+| `INCLUDE_PATTERNS` | No | `()` | Array of `find -name` patterns. Only matching files are backed up |
 | `EXCLUDE_PATTERNS` | No | `()` | Array of tar `--exclude` patterns |
 | `PASSPHRASE` | No | — | Leave empty to be prompted interactively |
 | `UPLOAD_REMOTE` | No | `""` | rclone remote + path (e.g., `s3:bucket/backups`) |
@@ -77,6 +81,37 @@ EXCLUDE_PATTERNS=(
     "__pycache__"
 )
 ```
+
+### Include Patterns
+
+Selectively back up only files matching specific patterns:
+
+```bash
+INCLUDE_PATTERNS=(
+    "*.env"
+    ".env.local"
+    "*.pem"
+)
+```
+
+When `INCLUDE_PATTERNS` is set, only matching files within `SOURCE_DIR` are backed up. `EXCLUDE_PATTERNS` are applied on top to further filter. When empty (default), the entire directory is backed up.
+
+## Collect
+
+One-off selective backup by pattern — no config file needed:
+
+```bash
+# Collect all .env files from a project tree
+./vault-backup.sh collect '*.env' --from ~/projects
+
+# Specify output directory
+./vault-backup.sh collect '*.env' --from ~/projects --to ~/backups
+
+# Scripted (pipe passphrase)
+echo "pass" | ./vault-backup.sh collect '*.env' --from ~/projects
+```
+
+Creates a `vault-collect-<timestamp>.tar.gz.enc` file with matched files preserving their path structure. A `.sha256` checksum is also created. Restore with the standard `restore` command.
 
 ## Restore
 

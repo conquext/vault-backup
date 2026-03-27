@@ -941,5 +941,282 @@ test_cron_requires_passphrase
 setup
 test_cron_shows_schedule
 
+# ── Task 9: Collect Tests ─────────────────────────────────────
+
+test_collect_round_trip() {
+  echo "TEST: collect round-trip"
+  mkdir -p "$TEST_TMP/project/src" "$TEST_TMP/project/config"
+  echo "app code" > "$TEST_TMP/project/src/app.js"
+  echo "DB_HOST=localhost" > "$TEST_TMP/project/src/.env"
+  echo "SECRET=abc" > "$TEST_TMP/project/config/.env"
+  echo "readme" > "$TEST_TMP/project/README.md"
+
+  # Collect all .env files
+  local output
+  output=$(echo "collectpass" | "$VAULT_BACKUP" collect '*.env' --from "$TEST_TMP/project" --to "$TEST_TMP/output" 2>&1) || {
+    fail "collect failed" "$output"
+    return
+  }
+
+  # Find the collect file
+  local enc_file
+  enc_file=$(ls "$TEST_TMP/output/"vault-collect-*.enc 2>/dev/null | head -1) || true
+  if [[ -z "$enc_file" ]]; then
+    fail "no vault-collect .enc file created"
+    return
+  fi
+
+  # Restore it
+  mkdir -p "$TEST_TMP/restore"
+  output=$(echo "collectpass" | "$VAULT_BACKUP" restore "$enc_file" --to "$TEST_TMP/restore" 2>&1) || {
+    fail "restore of collect failed" "$output"
+    return
+  }
+
+  # Verify .env files present with path structure, and non-.env absent
+  local ok=true
+  # The find output includes absolute paths from --from dir
+  if find "$TEST_TMP/restore" -name ".env" -type f | grep -q ".env"; then
+    : # good
+  else
+    fail "collect round-trip: .env files not found in restore"
+    ok=false
+  fi
+
+  if find "$TEST_TMP/restore" -name "app.js" -type f | grep -q "app.js"; then
+    fail "collect round-trip: app.js should not be in archive"
+    ok=false
+  fi
+
+  if find "$TEST_TMP/restore" -name "README.md" -type f | grep -q "README.md"; then
+    fail "collect round-trip: README.md should not be in archive"
+    ok=false
+  fi
+
+  if $ok; then
+    pass "collect round-trip: correct files collected with path structure"
+  fi
+}
+
+test_collect_no_matches() {
+  echo "TEST: collect fails on no matches"
+  mkdir -p "$TEST_TMP/project"
+  echo "hello" > "$TEST_TMP/project/file.txt"
+
+  local output
+  if output=$(echo "pass" | "$VAULT_BACKUP" collect '*.xyz' --from "$TEST_TMP/project" --to "$TEST_TMP/output" 2>&1); then
+    fail "should have exited non-zero"
+  else
+    if echo "$output" | grep -q "No files matching"; then
+      pass "collect: no matches detected"
+    else
+      fail "wrong error message" "$output"
+    fi
+  fi
+}
+
+test_collect_missing_from() {
+  echo "TEST: collect fails without --from"
+  local output
+  if output=$(echo "pass" | "$VAULT_BACKUP" collect '*.env' 2>&1); then
+    fail "should have exited non-zero"
+  else
+    if echo "$output" | grep -q "Usage:"; then
+      pass "collect: missing --from shows usage"
+    else
+      fail "wrong error message" "$output"
+    fi
+  fi
+}
+
+test_collect_checksum() {
+  echo "TEST: collect creates .sha256 file"
+  mkdir -p "$TEST_TMP/project"
+  echo "data" > "$TEST_TMP/project/file.txt"
+
+  echo "checksumpass" | "$VAULT_BACKUP" collect '*.txt' --from "$TEST_TMP/project" --to "$TEST_TMP/output" >/dev/null 2>&1
+
+  local enc_file
+  enc_file=$(ls "$TEST_TMP/output/"vault-collect-*.enc 2>/dev/null | head -1) || true
+  local sha_file="${enc_file}.sha256"
+
+  if [[ -f "$sha_file" ]]; then
+    pass "collect: .sha256 file created"
+  else
+    fail "collect: .sha256 file not found"
+  fi
+}
+
+# ── Task 10: Include Patterns Tests ──────────────────────────
+
+test_include_patterns_backup() {
+  echo "TEST: INCLUDE_PATTERNS backs up only matching files"
+  echo "keep this" > "$TEST_TMP/source/notes.txt"
+  echo "also keep" > "$TEST_TMP/source/todo.txt"
+  echo "skip me" > "$TEST_TMP/source/image.png"
+  mkdir -p "$TEST_TMP/source/sub"
+  echo "nested txt" > "$TEST_TMP/source/sub/deep.txt"
+
+  cat > "$TEST_TMP/vault-backup.conf" <<CONF
+SOURCE_DIR="$TEST_TMP/source"
+OUTPUT_DIR="$TEST_TMP/output"
+INCLUDE_PATTERNS=("*.txt")
+PASSPHRASE="includetest"
+CONF
+  chmod 600 "$TEST_TMP/vault-backup.conf"
+
+  "$VAULT_BACKUP" "$TEST_TMP/vault-backup.conf" >/dev/null 2>&1 || {
+    fail "backup with include patterns failed"
+    return
+  }
+
+  local enc_file
+  enc_file=$(ls "$TEST_TMP/output/"*.enc 2>/dev/null | head -1)
+
+  openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 600000 -md sha256 \
+    -pass pass:includetest \
+    -in "$enc_file" \
+    -out "$TEST_TMP/restore/backup.tar.gz" 2>/dev/null
+
+  tar xzf "$TEST_TMP/restore/backup.tar.gz" -C "$TEST_TMP/restore"
+
+  local ok=true
+  [[ -f "$TEST_TMP/restore/notes.txt" ]] || { fail "include: notes.txt missing"; ok=false; }
+  [[ -f "$TEST_TMP/restore/todo.txt" ]] || { fail "include: todo.txt missing"; ok=false; }
+  [[ -f "$TEST_TMP/restore/sub/deep.txt" ]] || { fail "include: sub/deep.txt missing"; ok=false; }
+  [[ ! -f "$TEST_TMP/restore/image.png" ]] || { fail "include: image.png should be excluded"; ok=false; }
+
+  if $ok; then
+    pass "include patterns: only .txt files in archive"
+  fi
+}
+
+test_include_patterns_empty() {
+  echo "TEST: empty INCLUDE_PATTERNS does normal full backup"
+  echo "file1" > "$TEST_TMP/source/a.txt"
+  echo "file2" > "$TEST_TMP/source/b.png"
+
+  cat > "$TEST_TMP/vault-backup.conf" <<CONF
+SOURCE_DIR="$TEST_TMP/source"
+OUTPUT_DIR="$TEST_TMP/output"
+INCLUDE_PATTERNS=()
+PASSPHRASE="emptyinclude"
+CONF
+  chmod 600 "$TEST_TMP/vault-backup.conf"
+
+  "$VAULT_BACKUP" "$TEST_TMP/vault-backup.conf" >/dev/null 2>&1 || {
+    fail "backup with empty include failed"
+    return
+  }
+
+  local enc_file
+  enc_file=$(ls "$TEST_TMP/output/"*.enc 2>/dev/null | head -1)
+
+  openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 600000 -md sha256 \
+    -pass pass:emptyinclude \
+    -in "$enc_file" \
+    -out "$TEST_TMP/restore/backup.tar.gz" 2>/dev/null
+
+  tar xzf "$TEST_TMP/restore/backup.tar.gz" -C "$TEST_TMP/restore"
+
+  local ok=true
+  [[ -f "$TEST_TMP/restore/a.txt" ]] || { fail "empty include: a.txt missing"; ok=false; }
+  [[ -f "$TEST_TMP/restore/b.png" ]] || { fail "empty include: b.png missing"; ok=false; }
+
+  if $ok; then
+    pass "empty include patterns: full backup (backward compat)"
+  fi
+}
+
+test_include_plus_exclude() {
+  echo "TEST: INCLUDE + EXCLUDE interaction"
+  echo "keep" > "$TEST_TMP/source/app.txt"
+  echo "exclude me" > "$TEST_TMP/source/debug.txt"
+  echo "skip" > "$TEST_TMP/source/photo.png"
+
+  cat > "$TEST_TMP/vault-backup.conf" <<CONF
+SOURCE_DIR="$TEST_TMP/source"
+OUTPUT_DIR="$TEST_TMP/output"
+INCLUDE_PATTERNS=("*.txt")
+EXCLUDE_PATTERNS=("debug.txt")
+PASSPHRASE="bothtest"
+CONF
+  chmod 600 "$TEST_TMP/vault-backup.conf"
+
+  "$VAULT_BACKUP" "$TEST_TMP/vault-backup.conf" >/dev/null 2>&1 || {
+    fail "backup with include+exclude failed"
+    return
+  }
+
+  local enc_file
+  enc_file=$(ls "$TEST_TMP/output/"*.enc 2>/dev/null | head -1)
+
+  openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 600000 -md sha256 \
+    -pass pass:bothtest \
+    -in "$enc_file" \
+    -out "$TEST_TMP/restore/backup.tar.gz" 2>/dev/null
+
+  tar xzf "$TEST_TMP/restore/backup.tar.gz" -C "$TEST_TMP/restore"
+
+  local ok=true
+  [[ -f "$TEST_TMP/restore/app.txt" ]] || { fail "include+exclude: app.txt missing"; ok=false; }
+  [[ ! -f "$TEST_TMP/restore/debug.txt" ]] || { fail "include+exclude: debug.txt should be excluded"; ok=false; }
+  [[ ! -f "$TEST_TMP/restore/photo.png" ]] || { fail "include+exclude: photo.png should not be included"; ok=false; }
+
+  if $ok; then
+    pass "include+exclude: correct filtering"
+  fi
+}
+
+test_dry_run_with_include() {
+  echo "TEST: dry run with INCLUDE_PATTERNS shows include info"
+  echo "data" > "$TEST_TMP/source/file.txt"
+  echo "other" > "$TEST_TMP/source/file.log"
+
+  cat > "$TEST_TMP/vault-backup.conf" <<CONF
+SOURCE_DIR="$TEST_TMP/source"
+OUTPUT_DIR="$TEST_TMP/output"
+INCLUDE_PATTERNS=("*.txt")
+PASSPHRASE="dryinclude"
+CONF
+  chmod 600 "$TEST_TMP/vault-backup.conf"
+
+  local output
+  output=$("$VAULT_BACKUP" --dry-run --config "$TEST_TMP/vault-backup.conf" 2>&1) || {
+    fail "dry run with include failed" "$output"
+    return
+  }
+
+  local ok=true
+  echo "$output" | grep -q "Include:" || { fail "missing Include label"; ok=false; }
+  echo "$output" | grep -q "Files:" || { fail "missing file count"; ok=false; }
+  # Should show 1 file (only .txt matches)
+  echo "$output" | grep -q "Files:.*1" || { fail "wrong file count (expected 1)"; ok=false; }
+
+  if $ok; then
+    pass "dry run with include: shows patterns and correct count"
+  fi
+}
+
+# Task 9: Collect
+setup
+test_collect_round_trip
+setup
+test_collect_no_matches
+setup
+test_collect_missing_from
+setup
+test_collect_checksum
+
+# Task 10: Include Patterns
+setup
+test_include_patterns_backup
+setup
+test_include_patterns_empty
+setup
+test_include_plus_exclude
+setup
+test_dry_run_with_include
+
 teardown
 summary
